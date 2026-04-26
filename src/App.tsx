@@ -12,6 +12,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Settings,
   Square,
   TimerReset,
 } from "lucide-react";
@@ -23,6 +24,7 @@ type ProjectStatus = "active" | "paused" | "done";
 type Energy = "low" | "medium" | "high";
 type SessionStatus = "running" | "completed" | "cancelled";
 type LessonTrigger = "before_focus" | "after_focus" | "overwhelmed" | "daily_review";
+type TimerPhase = "focus" | "break";
 
 type Task = {
   id: string;
@@ -64,19 +66,30 @@ type Lesson = {
   trigger: LessonTrigger;
 };
 
+type TimerSettings = {
+  focusMinutes: number;
+  breakMinutes: number;
+};
+
 type AppState = {
   tasks: Task[];
   projects: Project[];
   sessions: FocusSession[];
   lessons: Lesson[];
+  settings: TimerSettings;
 };
 
 const STORAGE_KEY = "pomo-todo-productivity:v1";
-const DEFAULT_FOCUS_SECONDS = 25 * 60;
 const QUICK_FOCUS_SECONDS = 5 * 60;
+const DEFAULT_SETTINGS: TimerSettings = {
+  focusMinutes: 25,
+  breakMinutes: 5,
+};
 
 const nowIso = () => new Date().toISOString();
 const createId = () => crypto.randomUUID();
+const clampMinutes = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Math.round(value) || min));
 
 const seedState: AppState = {
   tasks: [
@@ -107,6 +120,7 @@ const seedState: AppState = {
     },
   ],
   sessions: [],
+  settings: DEFAULT_SETTINGS,
   lessons: [
     {
       id: createId(),
@@ -134,7 +148,17 @@ function loadState(): AppState {
   if (!raw) return seedState;
 
   try {
-    return JSON.parse(raw) as AppState;
+    const parsed = JSON.parse(raw) as Partial<AppState>;
+    return {
+      tasks: parsed.tasks ?? seedState.tasks,
+      projects: parsed.projects ?? seedState.projects,
+      sessions: parsed.sessions ?? [],
+      lessons: parsed.lessons ?? seedState.lessons,
+      settings: {
+        ...DEFAULT_SETTINGS,
+        ...parsed.settings,
+      },
+    };
   } catch {
     return seedState;
   }
@@ -158,6 +182,8 @@ function formatShortDate(value?: string) {
 
 export function App() {
   const [state, setState] = useState<AppState>(() => loadState());
+  const focusSeconds = state.settings.focusMinutes * 60;
+  const breakSeconds = state.settings.breakMinutes * 60;
   const [view, setView] = useState<View>("today");
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(
     () => state.tasks.find((task) => task.status === "today")?.id,
@@ -166,11 +192,13 @@ export function App() {
   const [projectName, setProjectName] = useState("");
   const [lessonText, setLessonText] = useState("");
   const [reflection, setReflection] = useState("");
-  const [timerSeconds, setTimerSeconds] = useState(DEFAULT_FOCUS_SECONDS);
+  const [timerPhase, setTimerPhase] = useState<TimerPhase>("focus");
+  const [timerSeconds, setTimerSeconds] = useState(() => focusSeconds);
   const [timerRunning, setTimerRunning] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | undefined>();
   const [overwhelmed, setOverwhelmed] = useState(false);
   const [captureText, setCaptureText] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -183,14 +211,37 @@ export function App() {
       setTimerSeconds((seconds) => {
         if (seconds <= 1) {
           setTimerRunning(false);
-          return 0;
+          if (timerPhase === "focus") {
+            if (activeSessionId) {
+              setState((current) => ({
+                ...current,
+                sessions: current.sessions.map((session) =>
+                  session.id === activeSessionId
+                    ? {
+                        ...session,
+                        endedAt: nowIso(),
+                        reflection: reflection.trim() || undefined,
+                        status: "completed",
+                      }
+                    : session,
+                ),
+              }));
+            }
+            setTimerPhase("break");
+            setActiveSessionId(undefined);
+            setReflection("");
+            return breakSeconds;
+          }
+
+          setTimerPhase("focus");
+          return focusSeconds;
         }
         return seconds - 1;
       });
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [timerRunning]);
+  }, [activeSessionId, breakSeconds, focusSeconds, reflection, timerPhase, timerRunning]);
 
   const selectedTask = state.tasks.find((task) => task.id === selectedTaskId);
   const todayTasks = state.tasks.filter((task) => task.status === "today");
@@ -279,8 +330,36 @@ export function App() {
     }));
   }
 
-  function startTimer(seconds = DEFAULT_FOCUS_SECONDS) {
-    if (!activeSessionId) {
+  function updateSettings(patch: Partial<TimerSettings>) {
+    const nextSettings = {
+      ...state.settings,
+      ...patch,
+    };
+
+    updateState((current) => ({
+      ...current,
+      settings: {
+        focusMinutes: clampMinutes(nextSettings.focusMinutes, 1, 90),
+        breakMinutes: clampMinutes(nextSettings.breakMinutes, 1, 60),
+      },
+    }));
+
+    if (!timerRunning && !activeSessionId) {
+      const nextSeconds =
+        timerPhase === "focus"
+          ? clampMinutes(nextSettings.focusMinutes, 1, 90) * 60
+          : clampMinutes(nextSettings.breakMinutes, 1, 60) * 60;
+      setTimerSeconds(nextSeconds);
+    }
+  }
+
+  function startTimer(
+    seconds = timerPhase === "focus" ? focusSeconds : breakSeconds,
+    phase = timerPhase,
+  ) {
+    setTimerPhase(phase);
+
+    if (phase === "focus" && !activeSessionId) {
       const session: FocusSession = {
         id: createId(),
         taskId: selectedTaskId,
@@ -299,32 +378,42 @@ export function App() {
     setView("focus");
   }
 
-  function resetTimer(seconds = DEFAULT_FOCUS_SECONDS) {
+  function resetTimer(seconds = timerPhase === "focus" ? focusSeconds : breakSeconds) {
     setTimerRunning(false);
     setTimerSeconds(seconds);
-    setActiveSessionId(undefined);
+    if (timerPhase === "focus") {
+      setActiveSessionId(undefined);
+    }
   }
 
-  function completeSession() {
-    if (!activeSessionId) return;
+  function completeFocusSession() {
+    if (activeSessionId) {
+      updateState((current) => ({
+        ...current,
+        sessions: current.sessions.map((session) =>
+          session.id === activeSessionId
+            ? {
+                ...session,
+                endedAt: nowIso(),
+                reflection: reflection.trim() || undefined,
+                status: "completed",
+              }
+            : session,
+        ),
+      }));
+    }
 
-    updateState((current) => ({
-      ...current,
-      sessions: current.sessions.map((session) =>
-        session.id === activeSessionId
-          ? {
-              ...session,
-              endedAt: nowIso(),
-              reflection: reflection.trim() || undefined,
-              status: "completed",
-            }
-          : session,
-      ),
-    }));
     setTimerRunning(false);
-    setTimerSeconds(DEFAULT_FOCUS_SECONDS);
+    setTimerPhase("break");
+    setTimerSeconds(breakSeconds);
     setActiveSessionId(undefined);
     setReflection("");
+  }
+
+  function finishBreak() {
+    setTimerRunning(false);
+    setTimerPhase("focus");
+    setTimerSeconds(focusSeconds);
   }
 
   function quickCapture(event: FormEvent) {
@@ -371,7 +460,10 @@ export function App() {
             <span className="muted">mode</span> <strong>{overwhelmed ? "overwhelmed" : view}</strong>
           </div>
           <div>
-            <span className="muted">timer</span> <strong>{formatTime(timerSeconds)}</strong>
+            <span className="muted">timer</span>{" "}
+            <strong>
+              {timerPhase} {formatTime(timerSeconds)}
+            </strong>
           </div>
           <div>
             <span className="muted">tasks</span> <strong>{openTasks.length} open</strong>
@@ -392,7 +484,7 @@ export function App() {
             onCaptureTextChange={setCaptureText}
             onStartQuick={() => {
               setTimerSeconds(QUICK_FOCUS_SECONDS);
-              startTimer(QUICK_FOCUS_SECONDS);
+              startTimer(QUICK_FOCUS_SECONDS, "focus");
             }}
             selectedTask={selectedTask}
           />
@@ -402,7 +494,10 @@ export function App() {
               <TodayView
                 onAddTask={addTask}
                 onSelectTask={setSelectedTaskId}
-                onStartFocus={() => startTimer(DEFAULT_FOCUS_SECONDS)}
+                onStartFocus={() => {
+                  setTimerSeconds(focusSeconds);
+                  startTimer(focusSeconds, "focus");
+                }}
                 onTaskTitleChange={setTaskTitle}
                 onUpdateTask={updateTask}
                 projects={state.projects}
@@ -436,13 +531,18 @@ export function App() {
               <FocusView
                 activeSessionId={activeSessionId}
                 focusLesson={focusLesson}
-                onComplete={completeSession}
+                onComplete={timerPhase === "focus" ? completeFocusSession : finishBreak}
                 onPause={() => setTimerRunning(false)}
                 onReflectionChange={setReflection}
-                onReset={() => resetTimer(DEFAULT_FOCUS_SECONDS)}
-                onStart={() => startTimer(DEFAULT_FOCUS_SECONDS)}
+                onReset={() => resetTimer()}
+                onSettingsChange={updateSettings}
+                onSettingsToggle={() => setSettingsOpen((open) => !open)}
+                onStart={() => startTimer()}
                 reflection={reflection}
                 selectedTask={selectedTask}
+                settings={state.settings}
+                settingsOpen={settingsOpen}
+                timerPhase={timerPhase}
                 timerRunning={timerRunning}
                 timerSeconds={timerSeconds}
               />
@@ -717,9 +817,14 @@ function FocusView({
   onPause,
   onReflectionChange,
   onReset,
+  onSettingsChange,
+  onSettingsToggle,
   onStart,
   reflection,
   selectedTask,
+  settings,
+  settingsOpen,
+  timerPhase,
   timerRunning,
   timerSeconds,
 }: {
@@ -729,18 +834,64 @@ function FocusView({
   onPause: () => void;
   onReflectionChange: (value: string) => void;
   onReset: () => void;
+  onSettingsChange: (patch: Partial<TimerSettings>) => void;
+  onSettingsToggle: () => void;
   onStart: () => void;
   reflection: string;
   selectedTask?: Task;
+  settings: TimerSettings;
+  settingsOpen: boolean;
+  timerPhase: TimerPhase;
   timerRunning: boolean;
   timerSeconds: number;
 }) {
+  const isBreak = timerPhase === "break";
+
   return (
     <section className="focus-panel">
-      <p className="eyebrow">focus</p>
-      <h1>{selectedTask?.title ?? "No task selected"}</h1>
+      <div className="focus-heading">
+        <div>
+          <p className="eyebrow">{timerPhase}</p>
+          <h1>{isBreak ? "Break" : selectedTask?.title ?? "No task selected"}</h1>
+        </div>
+        <button className="icon-button large" title="timer settings" onClick={onSettingsToggle}>
+          <Settings size={18} />
+        </button>
+      </div>
+      {settingsOpen && (
+        <div className="settings-popover">
+          <label>
+            <span>pomodoro minutes</span>
+            <input
+              min="1"
+              max="90"
+              type="number"
+              value={settings.focusMinutes}
+              onChange={(event) =>
+                onSettingsChange({ focusMinutes: Number(event.target.value) || 1 })
+              }
+            />
+          </label>
+          <label>
+            <span>break minutes</span>
+            <input
+              min="1"
+              max="60"
+              type="number"
+              value={settings.breakMinutes}
+              onChange={(event) =>
+                onSettingsChange({ breakMinutes: Number(event.target.value) || 1 })
+              }
+            />
+          </label>
+        </div>
+      )}
       <div className="timer">{formatTime(timerSeconds)}</div>
-      <p className="lesson">{focusLesson?.text}</p>
+      <p className="lesson">
+        {isBreak
+          ? "Step away for the break. Let the last session settle before choosing the next action."
+          : focusLesson?.text}
+      </p>
       <div className="control-row">
         {timerRunning ? (
           <button className="primary-action" onClick={onPause}>
@@ -750,21 +901,28 @@ function FocusView({
         ) : (
           <button className="primary-action" onClick={onStart}>
             <Play size={16} />
-            <span>{activeSessionId ? "resume" : "start"}</span>
+            <span>{activeSessionId || isBreak ? "resume" : "start"}</span>
           </button>
         )}
         <button className="icon-button large" title="reset timer" onClick={onReset}>
           <RotateCcw size={18} />
         </button>
-        <button className="icon-button large" title="complete session" onClick={onComplete} disabled={!activeSessionId}>
+        <button
+          className="icon-button large"
+          title={isBreak ? "finish break" : "complete session"}
+          onClick={onComplete}
+          disabled={!isBreak && !activeSessionId}
+        >
           <Square size={18} />
         </button>
       </div>
-      <textarea
-        placeholder="session reflection"
-        value={reflection}
-        onChange={(event) => onReflectionChange(event.target.value)}
-      />
+      {!isBreak && (
+        <textarea
+          placeholder="session reflection"
+          value={reflection}
+          onChange={(event) => onReflectionChange(event.target.value)}
+        />
+      )}
     </section>
   );
 }

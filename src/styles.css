@@ -73,6 +73,7 @@ a {
 .composer,
 .row,
 .project-title,
+.focus-heading,
 .control-row,
 .metrics {
   display: flex;
@@ -376,6 +377,24 @@ label select {
   line-height: 1.2;
 }
 
+.focus-heading {
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  max-width: 920px;
+}
+
+.settings-popover {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: 12px;
+  width: min(460px, 100%);
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
 .timer {
   font-size: 7rem;
   line-height: 1;
@@ -513,5 +532,10 @@ textarea {
   .panel-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .focus-heading,
+  .settings-popover {
+    grid-template-columns: 1fr;
   }
 }
