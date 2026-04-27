@@ -16,6 +16,7 @@ import {
   Square,
   TimerReset,
 } from "lucide-react";
+import { createClient, Session } from "@supabase/supabase-js";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
 type View = "today" | "inbox" | "projects" | "focus" | "review";
@@ -85,6 +86,11 @@ const DEFAULT_SETTINGS: TimerSettings = {
   focusMinutes: 25,
   breakMinutes: 5,
 };
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+const allowedEmail = (import.meta.env.VITE_ALLOWED_EMAIL as string | undefined)?.toLowerCase();
+const supabase =
+  supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : undefined;
 
 const nowIso = () => new Date().toISOString();
 const createId = () => crypto.randomUUID();
@@ -181,6 +187,111 @@ function formatShortDate(value?: string) {
 }
 
 export function App() {
+  return (
+    <AuthGate>
+      <ProductivityApp />
+    </AuthGate>
+  );
+}
+
+function AuthGate({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(Boolean(supabase));
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setLoading(false);
+      setAuthError("");
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function signInWithGoogle() {
+    if (!supabase) return;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+
+    if (error) {
+      setAuthError(error.message);
+    }
+  }
+
+  async function signOut() {
+    await supabase?.auth.signOut();
+  }
+
+  if (!supabase) {
+    return <>{children}</>;
+  }
+
+  const email = session?.user.email?.toLowerCase();
+  const allowed = Boolean(email && allowedEmail && email === allowedEmail);
+
+  if (loading) {
+    return (
+      <main className="auth-screen">
+        <p className="eyebrow">auth</p>
+        <h1>Checking session</h1>
+      </main>
+    );
+  }
+
+  if (!session) {
+    return (
+      <main className="auth-screen">
+        <p className="eyebrow">auth</p>
+        <h1>Sign in</h1>
+        <p className="muted">Google login is required for this workspace.</p>
+        <button className="primary-action" onClick={signInWithGoogle}>
+          <span>sign in with Google</span>
+        </button>
+        {authError && <p className="auth-error">{authError}</p>}
+      </main>
+    );
+  }
+
+  if (!allowed) {
+    return (
+      <main className="auth-screen">
+        <p className="eyebrow">blocked</p>
+        <h1>Account not allowed</h1>
+        <p className="muted">{email ?? "This Google account"} is not on the allowlist.</p>
+        <button className="primary-action" onClick={signOut}>
+          <span>sign out</span>
+        </button>
+      </main>
+    );
+  }
+
+  return (
+    <>
+      <div className="auth-strip">
+        <span>{email}</span>
+        <button onClick={signOut}>sign out</button>
+      </div>
+      {children}
+    </>
+  );
+}
+
+function ProductivityApp() {
   const [state, setState] = useState<AppState>(() => loadState());
   const focusSeconds = state.settings.focusMinutes * 60;
   const breakSeconds = state.settings.breakMinutes * 60;

@@ -52,6 +52,53 @@ a {
   color: var(--accent);
 }
 
+.auth-screen {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 16px;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.auth-screen h1 {
+  margin-bottom: 0;
+}
+
+.auth-error {
+  color: var(--danger);
+}
+
+.auth-strip {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 24px);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #090c0a;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.auth-strip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-strip button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+}
+
 .app {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
