@@ -70,6 +70,10 @@ a {
   color: var(--danger);
 }
 
+.auth-notice {
+  color: var(--accent);
+}
+
 .auth-form {
   display: grid;
   gap: 14px;

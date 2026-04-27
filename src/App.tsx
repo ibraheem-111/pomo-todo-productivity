@@ -86,8 +86,12 @@ const DEFAULT_SETTINGS: TimerSettings = {
   focusMinutes: 25,
   breakMinutes: 5,
 };
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+const supabaseUrl =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
+  (import.meta.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined);
+const supabaseKey =
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
+  (import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY as string | undefined);
 const allowedEmail = (import.meta.env.VITE_ALLOWED_EMAIL as string | undefined)?.toLowerCase();
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : undefined;
@@ -198,8 +202,8 @@ function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(Boolean(supabase));
   const [authError, setAuthError] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
   const [emailInput, setEmailInput] = useState(allowedEmail ?? "");
-  const [passwordInput, setPasswordInput] = useState("");
 
   useEffect(() => {
     if (!supabase) return;
@@ -220,19 +224,33 @@ function AuthGate({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function signInWithPassword(event: FormEvent) {
+  async function sendMagicLink(event: FormEvent) {
     event.preventDefault();
     if (!supabase) return;
 
+    const email = emailInput.trim().toLowerCase();
     setAuthError("");
-    const { error } = await supabase.auth.signInWithPassword({
-      email: emailInput.trim(),
-      password: passwordInput,
+    setAuthNotice("");
+
+    if (allowedEmail && email !== allowedEmail) {
+      setAuthError("This email is not on the allowlist.");
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: window.location.origin,
+        shouldCreateUser: false,
+      },
     });
 
     if (error) {
       setAuthError(error.message);
+      return;
     }
+
+    setAuthNotice("Check your email for the sign-in link.");
   }
 
   async function signOut() {
@@ -260,8 +278,8 @@ function AuthGate({ children }: { children: ReactNode }) {
       <main className="auth-screen">
         <p className="eyebrow">auth</p>
         <h1>Sign in</h1>
-        <p className="muted">Email and password are required for this workspace.</p>
-        <form className="auth-form" onSubmit={signInWithPassword}>
+        <p className="muted">Enter your email and use the sign-in link Supabase sends you.</p>
+        <form className="auth-form" onSubmit={sendMagicLink}>
           <label>
             <span>email</span>
             <input
@@ -271,19 +289,11 @@ function AuthGate({ children }: { children: ReactNode }) {
               onChange={(event) => setEmailInput(event.target.value)}
             />
           </label>
-          <label>
-            <span>password</span>
-            <input
-              autoComplete="current-password"
-              type="password"
-              value={passwordInput}
-              onChange={(event) => setPasswordInput(event.target.value)}
-            />
-          </label>
           <button className="primary-action">
-            <span>sign in</span>
+            <span>send link</span>
           </button>
         </form>
+        {authNotice && <p className="auth-notice">{authNotice}</p>}
         {authError && <p className="auth-error">{authError}</p>}
       </main>
     );

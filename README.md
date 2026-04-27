@@ -40,7 +40,7 @@ Avoid broad rules such as `Everyone`, `Emails ending in`, or all valid one-time-
 
 ## Email Login
 
-The app also supports an in-app Supabase email/password auth gate. It activates only when these Cloudflare Pages environment variables are set:
+The app also supports an in-app Supabase passwordless email auth gate. It activates only when these Cloudflare Pages environment variables are set:
 
 ```bash
 VITE_SUPABASE_URL=
@@ -55,7 +55,8 @@ Supabase setup required:
 - Create a Supabase project
 - Keep the Email provider enabled in Supabase Auth
 - Disable public signups if you only want manually-created users
-- Create your own user in Supabase Auth with email and password
+- Create your own user in Supabase Auth
+- Use the app's sign-in form to request a magic link
 - Add your deployed app URL to Supabase Auth redirect URLs
 
 ## Next Work
