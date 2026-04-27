@@ -198,6 +198,8 @@ function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(Boolean(supabase));
   const [authError, setAuthError] = useState("");
+  const [emailInput, setEmailInput] = useState(allowedEmail ?? "");
+  const [passwordInput, setPasswordInput] = useState("");
 
   useEffect(() => {
     if (!supabase) return;
@@ -218,14 +220,14 @@ function AuthGate({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function signInWithGoogle() {
+  async function signInWithPassword(event: FormEvent) {
+    event.preventDefault();
     if (!supabase) return;
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: window.location.origin,
-      },
+    setAuthError("");
+    const { error } = await supabase.auth.signInWithPassword({
+      email: emailInput.trim(),
+      password: passwordInput,
     });
 
     if (error) {
@@ -258,10 +260,30 @@ function AuthGate({ children }: { children: ReactNode }) {
       <main className="auth-screen">
         <p className="eyebrow">auth</p>
         <h1>Sign in</h1>
-        <p className="muted">Google login is required for this workspace.</p>
-        <button className="primary-action" onClick={signInWithGoogle}>
-          <span>sign in with Google</span>
-        </button>
+        <p className="muted">Email and password are required for this workspace.</p>
+        <form className="auth-form" onSubmit={signInWithPassword}>
+          <label>
+            <span>email</span>
+            <input
+              autoComplete="email"
+              type="email"
+              value={emailInput}
+              onChange={(event) => setEmailInput(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>password</span>
+            <input
+              autoComplete="current-password"
+              type="password"
+              value={passwordInput}
+              onChange={(event) => setPasswordInput(event.target.value)}
+            />
+          </label>
+          <button className="primary-action">
+            <span>sign in</span>
+          </button>
+        </form>
         {authError && <p className="auth-error">{authError}</p>}
       </main>
     );
@@ -272,7 +294,7 @@ function AuthGate({ children }: { children: ReactNode }) {
       <main className="auth-screen">
         <p className="eyebrow">blocked</p>
         <h1>Account not allowed</h1>
-        <p className="muted">{email ?? "This Google account"} is not on the allowlist.</p>
+        <p className="muted">{email ?? "This account"} is not on the allowlist.</p>
         <button className="primary-action" onClick={signOut}>
           <span>sign out</span>
         </button>

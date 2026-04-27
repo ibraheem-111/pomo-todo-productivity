@@ -70,6 +70,16 @@ a {
   color: var(--danger);
 }
 
+.auth-form {
+  display: grid;
+  gap: 14px;
+  width: min(360px, 100%);
+}
+
+.auth-form .primary-action {
+  width: fit-content;
+}
+
 .auth-strip {
   position: fixed;
   right: 12px;
